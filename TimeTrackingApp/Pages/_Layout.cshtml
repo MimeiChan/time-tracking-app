@@ -1,0 +1,33 @@
+@using Microsoft.AspNetCore.Components.Web
+@namespace TimeTrackingApp.Pages
+@addTagHelper *, Microsoft.AspNetCore.Mvc.TagHelpers
+
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <base href="~/" />
+    <link rel="stylesheet" href="css/bootstrap/bootstrap.min.css" />
+    <link href="css/site.css" rel="stylesheet" />
+    <link href="TimeTrackingApp.styles.css" rel="stylesheet" />
+    <link rel="stylesheet" href="_content/Radzen.Blazor/css/default-base.css">
+    <component type="typeof(HeadOutlet)" render-mode="ServerPrerendered" />
+</head>
+<body>
+    @RenderBody()
+
+    <div id="blazor-error-ui">
+        <environment include="Staging,Production">
+            エラーが発生しました。アプリケーションは正常に動作しない可能性があります。
+        </environment>
+        <environment include="Development">
+            例外が発生しました: <a href="" class="reload">再読み込み</a>
+            <a class="dismiss">🗙</a>
+        </environment>
+    </div>
+
+    <script src="_framework/blazor.server.js"></script>
+    <script src="_content/Radzen.Blazor/Radzen.Blazor.js"></script>
+</body>
+</html>
