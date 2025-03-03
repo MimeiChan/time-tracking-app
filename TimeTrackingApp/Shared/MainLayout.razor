@@ -1,0 +1,74 @@
+@inherits LayoutComponentBase
+@inject NavigationManager NavigationManager
+@inject AuthenticationStateProvider AuthenticationStateProvider
+
+<PageTitle>時間計測ツール</PageTitle>
+
+<div class="page">
+    <div class="sidebar">
+        <NavMenu />
+    </div>
+
+    <main>
+        <div class="top-row px-4">
+            <AuthorizeView>
+                <Authorized>
+                    <div class="d-flex align-items-center">
+                        <div class="notification-icon me-3">
+                            <span class="oi oi-bell" aria-hidden="true"></span>
+                            <span class="notification-badge">3</span>
+                        </div>
+                        <div class="dropdown">
+                            <button class="btn btn-link nav-link dropdown-toggle" type="button" id="userDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+                                <span class="oi oi-person" aria-hidden="true"></span>
+                                @context.User.Identity?.Name
+                            </button>
+                            <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userDropdown">
+                                <li><a class="dropdown-item" href="Identity/Account/Manage">アカウント設定</a></li>
+                                <li><hr class="dropdown-divider"></li>
+                                <li><form method="post" action="Identity/Account/LogOut">
+                                    <button type="submit" class="dropdown-item">ログアウト</button>
+                                </form></li>
+                            </ul>
+                        </div>
+                    </div>
+                </Authorized>
+                <NotAuthorized>
+                    <a href="Identity/Account/Login">ログイン</a>
+                </NotAuthorized>
+            </AuthorizeView>
+        </div>
+
+        <article class="content px-4">
+            @Body
+        </article>
+    </main>
+</div>
+
+<style>
+    .notification-icon {
+        position: relative;
+    }
+
+    .notification-badge {
+        position: absolute;
+        top: -10px;
+        right: -10px;
+        background-color: #ff4757;
+        color: white;
+        border-radius: 50%;
+        font-size: 12px;
+        width: 20px;
+        height: 20px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+</style>
+
+@code {
+    protected override async Task OnInitializedAsync()
+    {
+        await base.OnInitializedAsync();
+    }
+}
