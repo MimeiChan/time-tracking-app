@@ -1,0 +1,71 @@
+@inject AuthenticationStateProvider AuthStateProvider
+@inject ILogger<NavMenu> Logger
+
+<div class="top-row ps-3 navbar navbar-dark">
+    <div class="container-fluid">
+        <a class="navbar-brand" href="">時間計測ツール</a>
+        <button title="Navigation menu" class="navbar-toggler" @onclick="ToggleNavMenu">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+    </div>
+</div>
+
+<div class="@NavMenuCssClass" @onclick="ToggleNavMenu">
+    <nav class="flex-column">
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
+                <span class="oi oi-home" aria-hidden="true"></span> ホーム
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="timer">
+                <span class="oi oi-timer" aria-hidden="true"></span> 時間計測
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="tasks">
+                <span class="oi oi-list" aria-hidden="true"></span> タスク管理
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="report">
+                <span class="oi oi-bar-chart" aria-hidden="true"></span> レポート
+            </NavLink>
+        </div>
+        
+        <AuthorizeView Roles="Administrator">
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="admin">
+                    <span class="oi oi-cog" aria-hidden="true"></span> 管理設定
+                </NavLink>
+            </div>
+        </AuthorizeView>
+        
+        <AuthorizeView Roles="Administrator">
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="Identity/Account/Register">
+                    <span class="oi oi-person" aria-hidden="true"></span> ユーザー登録
+                </NavLink>
+            </div>
+        </AuthorizeView>
+        
+        <hr />
+        
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="help">
+                <span class="oi oi-question-mark" aria-hidden="true"></span> ヘルプ
+            </NavLink>
+        </div>
+    </nav>
+</div>
+
+@code {
+    private bool collapseNavMenu = true;
+
+    private string? NavMenuCssClass => collapseNavMenu ? "collapse" : null;
+
+    private void ToggleNavMenu()
+    {
+        collapseNavMenu = !collapseNavMenu;
+    }
+}
