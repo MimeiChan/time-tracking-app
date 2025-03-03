@@ -1,0 +1,542 @@
+@page "/timer"
+@using TimeTrackingApp.Data
+@using TimeTrackingApp.Services
+@inject TimeEntryService TimeEntryService
+@inject TaskService TaskService
+@inject NotificationService NotificationService
+@inject AuthenticationStateProvider AuthStateProvider
+@inject ILogger<Timer> Logger
+
+<PageTitle>時間計測 - 時間計測ツール</PageTitle>
+
+<AuthorizeView>
+    <Authorized>
+        <h1>時間計測</h1>
+
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">現在の状況</h5>
+                        @if (activeTimeEntry != null)
+                        {
+                            <div class="alert alert-primary">
+                                <div class="d-flex justify-content-between align-items-start">
+                                    <div>
+                                        <h4>@(activeTimeEntry.Task?.Name ?? "読み込み中...")</h4>
+                                        <p class="mb-0">
+                                            開始時間: @activeTimeEntry.StartTime.ToString("yyyy/MM/dd HH:mm:ss")<br />
+                                            経過時間: <span class="fw-bold">@GetElapsedTime(activeTimeEntry)</span>
+                                        </p>
+                                        @if (activeTimeEntry.IsPaused)
+                                        {
+                                            <div class="mt-2 text-warning">
+                                                <span class="oi oi-media-pause"></span> 一時停止中
+                                            </div>
+                                        }
+                                        @if (!string.IsNullOrEmpty(activeTimeEntry.Notes))
+                                        {
+                                            <div class="mt-2">
+                                                <small>メモ: @activeTimeEntry.Notes</small>
+                                            </div>
+                                        }
+                                    </div>
+                                    <div class="btn-group">
+                                        @if (activeTimeEntry.IsPaused)
+                                        {
+                                            <button class="btn btn-success" @onclick="() => ResumeTimeEntry(activeTimeEntry.Id)">
+                                                <span class="oi oi-media-play" aria-hidden="true"></span> 再開
+                                            </button>
+                                        }
+                                        else
+                                        {
+                                            <button class="btn btn-warning" @onclick="() => PauseTimeEntry(activeTimeEntry.Id)">
+                                                <span class="oi oi-media-pause" aria-hidden="true"></span> 一時停止
+                                            </button>
+                                        }
+                                        <button class="btn btn-danger" @onclick="() => ShowEndDialog(activeTimeEntry.Id)">
+                                            <span class="oi oi-media-stop" aria-hidden="true"></span> 終了
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                        else
+                        {
+                            <p>現在進行中の業務はありません。</p>
+                            
+                            @if (tasks == null)
+                            {
+                                <p><em>タスクデータを読み込み中...</em></p>
+                            }
+                            else if (!tasks.Any())
+                            {
+                                <p>利用可能なタスクがありません。タスク管理ページからタスクを追加してください。</p>
+                            }
+                            else
+                            {
+                                <div class="row">
+                                    <div class="col-md-6 mb-3">
+                                        <label for="taskSelect" class="form-label">業務を選択</label>
+                                        <select id="taskSelect" class="form-select" @bind="selectedTaskId">
+                                            <option value="">-- 選択してください --</option>
+                                            @foreach (var category in tasksByCategory)
+                                            {
+                                                <optgroup label="@category.Key">
+                                                    @foreach (var task in category.Value)
+                                                    {
+                                                        <option value="@task.Id">@task.Name</option>
+                                                    }
+                                                </optgroup>
+                                            }
+                                        </select>
+                                    </div>
+                                    <div class="col-md-6 mb-3">
+                                        <label for="taskNotes" class="form-label">メモ（オプション）</label>
+                                        <input id="taskNotes" type="text" class="form-control" @bind="taskNotes" placeholder="業務に関するメモ" />
+                                    </div>
+                                </div>
+                                <div class="mt-3">
+                                    <button class="btn btn-primary" @onclick="StartNewTimeEntry" disabled="@(string.IsNullOrEmpty(selectedTaskId))">
+                                        <span class="oi oi-media-play" aria-hidden="true"></span> 開始
+                                    </button>
+                                </div>
+                            }
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-md-12">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">手動時間入力</h5>
+                        <p>過去の作業時間を手動で記録する場合はこちらを使用してください。</p>
+                        
+                        @if (tasks == null)
+                        {
+                            <p><em>タスクデータを読み込み中...</em></p>
+                        }
+                        else
+                        {
+                            <div class="row">
+                                <div class="col-md-4 mb-3">
+                                    <label for="manualTaskSelect" class="form-label">業務</label>
+                                    <select id="manualTaskSelect" class="form-select" @bind="manualTaskId">
+                                        <option value="">-- 選択してください --</option>
+                                        @foreach (var category in tasksByCategory)
+                                        {
+                                            <optgroup label="@category.Key">
+                                                @foreach (var task in category.Value)
+                                                {
+                                                    <option value="@task.Id">@task.Name</option>
+                                                }
+                                            </optgroup>
+                                        }
+                                    </select>
+                                </div>
+                                <div class="col-md-4 mb-3">
+                                    <label for="startDateTime" class="form-label">開始日時</label>
+                                    <input id="startDateTime" type="datetime-local" class="form-control" @bind="manualStartTime" />
+                                </div>
+                                <div class="col-md-4 mb-3">
+                                    <label for="endDateTime" class="form-label">終了日時</label>
+                                    <input id="endDateTime" type="datetime-local" class="form-control" @bind="manualEndTime" />
+                                </div>
+                                <div class="col-md-12 mb-3">
+                                    <label for="manualNotes" class="form-label">メモ（オプション）</label>
+                                    <input id="manualNotes" type="text" class="form-control" @bind="manualNotes" placeholder="業務に関するメモ" />
+                                </div>
+                            </div>
+                            <div class="mt-3">
+                                <button class="btn btn-primary" @onclick="AddManualTimeEntry"
+                                        disabled="@(string.IsNullOrEmpty(manualTaskId) || manualStartTime == null || manualEndTime == null)">
+                                    <span class="oi oi-plus" aria-hidden="true"></span> 時間を記録
+                                </button>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row mt-4">
+            <div class="col-md-12">
+                <div class="card">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <h5 class="card-title">最近の時間記録</h5>
+                            <div>
+                                <label for="dateFilter" class="me-2">表示期間:</label>
+                                <select id="dateFilter" class="form-select form-select-sm d-inline-block w-auto" @bind="dateFilter">
+                                    <option value="today">今日</option>
+                                    <option value="yesterday">昨日</option>
+                                    <option value="week">今週</option>
+                                    <option value="month">今月</option>
+                                </select>
+                            </div>
+                        </div>
+                        
+                        @if (timeEntries == null)
+                        {
+                            <p><em>読み込み中...</em></p>
+                        }
+                        else if (!timeEntries.Any())
+                        {
+                            <p>選択した期間の時間記録はありません。</p>
+                        }
+                        else
+                        {
+                            <div class="table-responsive">
+                                <table class="table table-hover">
+                                    <thead>
+                                        <tr>
+                                            <th>業務</th>
+                                            <th>開始時間</th>
+                                            <th>終了時間</th>
+                                            <th>時間</th>
+                                            <th>メモ</th>
+                                            <th>操作</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var entry in timeEntries)
+                                        {
+                                            <tr>
+                                                <td>@(entry.Task?.Name ?? "不明")</td>
+                                                <td>@entry.StartTime.ToString("MM/dd HH:mm")</td>
+                                                <td>
+                                                    @if (entry.EndTime.HasValue)
+                                                    {
+                                                        @entry.EndTime.Value.ToString("MM/dd HH:mm")
+                                                    }
+                                                    else
+                                                    {
+                                                        <span class="text-primary">進行中</span>
+                                                    }
+                                                </td>
+                                                <td>
+                                                    @if (entry.EndTime.HasValue)
+                                                    {
+                                                        @(entry.DurationMinutes.HasValue ? $"{entry.DurationMinutes.Value} 分" : "-")
+                                                    }
+                                                    else
+                                                    {
+                                                        <span class="text-primary">@GetElapsedTime(entry)</span>
+                                                    }
+                                                </td>
+                                                <td>
+                                                    <small>@(string.IsNullOrEmpty(entry.Notes) ? "-" : entry.Notes)</small>
+                                                </td>
+                                                <td>
+                                                    <button class="btn btn-sm btn-outline-secondary" @onclick="() => DeleteTimeEntry(entry.Id)">
+                                                        <span class="oi oi-trash" aria-hidden="true"></span>
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 終了確認ダイアログ -->
+        @if (showEndDialog)
+        {
+            <div class="modal show d-block" tabindex="-1" role="dialog">
+                <div class="modal-dialog" role="document">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title">業務終了確認</h5>
+                            <button type="button" class="btn-close" @onclick="CloseEndDialog" aria-label="Close"></button>
+                        </div>
+                        <div class="modal-body">
+                            <p>この業務を終了しますか？</p>
+                            <div class="mb-3">
+                                <label for="endNotes" class="form-label">追加メモ（オプション）</label>
+                                <textarea id="endNotes" class="form-control" @bind="endNotes" rows="3" placeholder="業務に関する追加メモがあれば入力してください"></textarea>
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" @onclick="CloseEndDialog">キャンセル</button>
+                            <button type="button" class="btn btn-danger" @onclick="ConfirmEndTimeEntry">終了する</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-backdrop fade show"></div>
+        }
+
+    </Authorized>
+    <NotAuthorized>
+        <RedirectToLogin />
+    </NotAuthorized>
+</AuthorizeView>
+
+@code {
+    private TimeEntry? activeTimeEntry;
+    private List<TimeEntry>? timeEntries;
+    private List<Task>? tasks;
+    private Dictionary<string, List<Task>>? tasksByCategory;
+    private string? userId;
+    private string? selectedTaskId;
+    private string? taskNotes;
+    private string? manualTaskId;
+    private DateTime? manualStartTime = DateTime.Now.AddHours(-1);
+    private DateTime? manualEndTime = DateTime.Now;
+    private string? manualNotes;
+    private string dateFilter = "today";
+    private System.Threading.Timer? timer;
+    private bool showEndDialog = false;
+    private int? endTimeEntryId;
+    private string? endNotes;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+
+        if (user.Identity?.IsAuthenticated == true)
+        {
+            userId = user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            
+            if (!string.IsNullOrEmpty(userId))
+            {
+                await LoadTasks();
+                await LoadActiveTimeEntry();
+                await LoadTimeEntries();
+
+                // タイマーを設定して1分ごとにUIを更新
+                timer = new System.Threading.Timer(
+                    async _ => 
+                    {
+                        await InvokeAsync(StateHasChanged);
+                    }, 
+                    null, 
+                    TimeSpan.Zero, 
+                    TimeSpan.FromSeconds(30));
+            }
+        }
+    }
+
+    public void Dispose()
+    {
+        timer?.Dispose();
+    }
+
+    private async Task LoadTasks()
+    {
+        try
+        {
+            tasks = await TaskService.GetAllTasksAsync();
+            
+            // カテゴリ別にタスクをグループ化
+            tasksByCategory = tasks
+                .GroupBy(t => t.Category?.Name ?? "その他")
+                .ToDictionary(g => g.Key, g => g.ToList());
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "タスクの読み込み中にエラーが発生しました");
+        }
+    }
+
+    private async Task LoadActiveTimeEntry()
+    {
+        try
+        {
+            activeTimeEntry = await TimeEntryService.GetActiveTimeEntryAsync(userId!);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "アクティブなタイムエントリの読み込み中にエラーが発生しました");
+        }
+    }
+
+    private async Task LoadTimeEntries()
+    {
+        try
+        {
+            DateTime startDate;
+            DateTime endDate = DateTime.Now;
+            
+            switch (dateFilter)
+            {
+                case "today":
+                    startDate = DateTime.Today;
+                    break;
+                case "yesterday":
+                    startDate = DateTime.Today.AddDays(-1);
+                    endDate = DateTime.Today.AddMilliseconds(-1);
+                    break;
+                case "week":
+                    startDate = DateTime.Today.AddDays(-(int)DateTime.Today.DayOfWeek);
+                    break;
+                case "month":
+                    startDate = new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1);
+                    break;
+                default:
+                    startDate = DateTime.Today;
+                    break;
+            }
+            
+            timeEntries = await TimeEntryService.GetUserTimeEntriesAsync(userId!, startDate, endDate);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "タイムエントリの読み込み中にエラーが発生しました");
+        }
+    }
+
+    private async Task StartNewTimeEntry()
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(selectedTaskId)) return;
+            
+            int taskId = int.Parse(selectedTaskId);
+            await TimeEntryService.StartTimeTrackingAsync(userId!, taskId, taskNotes);
+            
+            // UI更新
+            selectedTaskId = null;
+            taskNotes = null;
+            await LoadActiveTimeEntry();
+            await LoadTimeEntries();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "新規タイムエントリの開始中にエラーが発生しました");
+        }
+    }
+
+    private async Task PauseTimeEntry(int timeEntryId)
+    {
+        try
+        {
+            await TimeEntryService.PauseTimeTrackingAsync(timeEntryId);
+            await LoadActiveTimeEntry();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "タイムエントリの一時停止中にエラーが発生しました");
+        }
+    }
+
+    private async Task ResumeTimeEntry(int timeEntryId)
+    {
+        try
+        {
+            await TimeEntryService.ResumeTimeTrackingAsync(timeEntryId);
+            await LoadActiveTimeEntry();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "タイムエントリの再開中にエラーが発生しました");
+        }
+    }
+
+    private void ShowEndDialog(int timeEntryId)
+    {
+        endTimeEntryId = timeEntryId;
+        endNotes = null;
+        showEndDialog = true;
+    }
+
+    private void CloseEndDialog()
+    {
+        showEndDialog = false;
+        endTimeEntryId = null;
+        endNotes = null;
+    }
+
+    private async Task ConfirmEndTimeEntry()
+    {
+        try
+        {
+            if (endTimeEntryId.HasValue)
+            {
+                await TimeEntryService.EndTimeTrackingAsync(endTimeEntryId.Value, endNotes);
+                await LoadActiveTimeEntry();
+                await LoadTimeEntries();
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "タイムエントリの終了中にエラーが発生しました");
+        }
+        finally
+        {
+            CloseEndDialog();
+        }
+    }
+
+    private async Task AddManualTimeEntry()
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(manualTaskId) || !manualStartTime.HasValue || !manualEndTime.HasValue) return;
+            
+            int taskId = int.Parse(manualTaskId);
+            await TimeEntryService.AddManualTimeEntryAsync(userId!, taskId, manualStartTime.Value, manualEndTime.Value, manualNotes);
+            
+            // UI更新
+            manualStartTime = DateTime.Now.AddHours(-1);
+            manualEndTime = DateTime.Now;
+            manualNotes = null;
+            await LoadTimeEntries();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "手動タイムエントリの追加中にエラーが発生しました");
+        }
+    }
+
+    private async Task DeleteTimeEntry(int timeEntryId)
+    {
+        try
+        {
+            await TimeEntryService.DeleteTimeEntryAsync(timeEntryId);
+            await LoadTimeEntries();
+            await LoadActiveTimeEntry();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "タイムエントリの削除中にエラーが発生しました");
+        }
+    }
+
+    private string GetElapsedTime(TimeEntry entry)
+    {
+        if (entry.EndTime.HasValue)
+        {
+            // 終了している場合
+            return $"{entry.DurationMinutes} 分";
+        }
+        else
+        {
+            // 進行中の場合
+            var elapsed = DateTime.Now - entry.StartTime;
+            if (entry.IsPaused)
+            {
+                // 一時停止中の場合は、一時停止開始時点までの時間を計算
+                if (entry.PauseStartTime.HasValue)
+                {
+                    elapsed = entry.PauseStartTime.Value - entry.StartTime;
+                }
+            }
+
+            // 一時停止していた総時間を引く
+            elapsed = elapsed.Subtract(TimeSpan.FromMinutes(entry.PauseDurationMinutes));
+            
+            return elapsed.TotalHours >= 1 
+                ? $"{Math.Floor(elapsed.TotalHours):0}時間 {elapsed.Minutes:00}分"
+                : $"{elapsed.Minutes:0}分 {elapsed.Seconds:00}秒";
+        }
+    }
+}
