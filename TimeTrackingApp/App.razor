@@ -1,0 +1,37 @@
+<Router AppAssembly="@typeof(App).Assembly">
+    <Found Context="routeData">
+        <AuthorizeRouteView RouteData="@routeData" DefaultLayout="@typeof(MainLayout)">
+            <NotAuthorized>
+                @if (context.User.Identity?.IsAuthenticated != true)
+                {
+                    <RedirectToLogin />
+                }
+                else
+                {
+                    <p class="alert alert-danger mt-4">
+                        アクセス権限がありません。
+                    </p>
+                }
+            </NotAuthorized>
+            <Authorizing>
+                <div class="loading-indicator">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">認証中...</span>
+                    </div>
+                    <p>認証情報を確認中...</p>
+                </div>
+            </Authorizing>
+        </AuthorizeRouteView>
+        <FocusOnNavigate RouteData="@routeData" Selector="h1" />
+    </Found>
+    <NotFound>
+        <PageTitle>ページが見つかりません</PageTitle>
+        <LayoutView Layout="@typeof(MainLayout)">
+            <div class="container text-center mt-5">
+                <h1 class="display-4">404 - ページが見つかりません</h1>
+                <p class="lead">お探しのページは存在しないか、移動した可能性があります。</p>
+                <a href="/" class="btn btn-primary">ホームに戻る</a>
+            </div>
+        </LayoutView>
+    </NotFound>
+</Router>
