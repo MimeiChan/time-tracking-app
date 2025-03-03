@@ -1,0 +1,315 @@
+@page "/"
+@using TimeTrackingApp.Data
+@using TimeTrackingApp.Services
+@inject TimeEntryService TimeEntryService
+@inject TaskService TaskService
+@inject NotificationService NotificationService
+@inject AuthenticationStateProvider AuthStateProvider
+@inject ILogger<Index> Logger
+
+<PageTitle>ホーム - 時間計測ツール</PageTitle>
+
+<AuthorizeView>
+    <Authorized>
+        <div class="row mb-4">
+            <div class="col-md-12">
+                <div class="card">
+                    <div class="card-body">
+                        <h4 class="card-title">業務状況</h4>
+                        @if (activeTimeEntry != null)
+                        {
+                            <div class="alert alert-primary d-flex justify-content-between align-items-center">
+                                <div>
+                                    <h5>現在の業務: @(activeTimeEntry.Task?.Name ?? "読み込み中...")</h5>
+                                    <p class="mb-0">
+                                        開始時間: @activeTimeEntry.StartTime.ToString("yyyy/MM/dd HH:mm:ss")
+                                        （経過時間: @GetElapsedTime(activeTimeEntry)）
+                                    </p>
+                                </div>
+                                <div class="btn-group">
+                                    <button class="btn btn-outline-secondary" @onclick="() => PauseTimeEntry(activeTimeEntry.Id)" disabled="@(activeTimeEntry.IsPaused)">
+                                        <span class="oi oi-media-pause" aria-hidden="true"></span> 一時停止
+                                    </button>
+                                    <button class="btn btn-outline-secondary" @onclick="() => ResumeTimeEntry(activeTimeEntry.Id)" disabled="@(!activeTimeEntry.IsPaused)">
+                                        <span class="oi oi-media-play" aria-hidden="true"></span> 再開
+                                    </button>
+                                    <button class="btn btn-danger" @onclick="() => EndTimeEntry(activeTimeEntry.Id)">
+                                        <span class="oi oi-media-stop" aria-hidden="true"></span> 終了
+                                    </button>
+                                </div>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <p class="m-0">現在計測中の業務はありません。</p>
+                                <button class="btn btn-primary" @onclick="() => NavigateToTimerPage()">
+                                    <span class="oi oi-timer" aria-hidden="true"></span> 新しい業務を開始
+                                </button>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-md-6 mb-4">
+                <div class="card h-100">
+                    <div class="card-body">
+                        <h4 class="card-title">最近の業務</h4>
+                        @if (recentTimeEntries == null)
+                        {
+                            <p><em>読み込み中...</em></p>
+                        }
+                        else if (!recentTimeEntries.Any())
+                        {
+                            <p>最近の業務履歴はありません。</p>
+                        }
+                        else
+                        {
+                            <div class="table-responsive">
+                                <table class="table table-hover">
+                                    <thead>
+                                        <tr>
+                                            <th>業務名</th>
+                                            <th>日時</th>
+                                            <th>時間</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var entry in recentTimeEntries)
+                                        {
+                                            <tr>
+                                                <td>@(entry.Task?.Name ?? "不明")</td>
+                                                <td>@entry.StartTime.ToString("MM/dd HH:mm")</td>
+                                                <td>@(entry.DurationMinutes.HasValue ? $"{entry.DurationMinutes.Value} 分" : "進行中")</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-6 mb-4">
+                <div class="card h-100">
+                    <div class="card-body">
+                        <h4 class="card-title">通知</h4>
+                        @if (notifications == null)
+                        {
+                            <p><em>読み込み中...</em></p>
+                        }
+                        else if (!notifications.Any())
+                        {
+                            <p>新しい通知はありません。</p>
+                        }
+                        else
+                        {
+                            <div class="list-group">
+                                @foreach (var notification in notifications)
+                                {
+                                    <div class="list-group-item @(!notification.IsRead ? "list-group-item-primary" : "")">
+                                        <div class="d-flex w-100 justify-content-between">
+                                            <h5 class="mb-1">@notification.Title</h5>
+                                            <small>@notification.CreatedAt.ToString("MM/dd HH:mm")</small>
+                                        </div>
+                                        <p class="mb-1">@notification.Message</p>
+                                        <div class="d-flex justify-content-end">
+                                            <button class="btn btn-sm btn-outline-secondary" @onclick="() => MarkAsRead(notification.Id)">
+                                                既読
+                                            </button>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    </Authorized>
+    <NotAuthorized>
+        <div class="text-center my-5">
+            <h1 class="display-4">時間計測ツールへようこそ</h1>
+            <p class="lead">業務時間を簡単に記録・分析するためのツール</p>
+            <div class="mt-4">
+                <a href="Identity/Account/Login" class="btn btn-primary btn-lg">ログイン</a>
+            </div>
+        </div>
+    </NotAuthorized>
+</AuthorizeView>
+
+@code {
+    private TimeEntry? activeTimeEntry;
+    private List<TimeEntry>? recentTimeEntries;
+    private List<Notification>? notifications;
+    private string? userId;
+    private System.Threading.Timer? timer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+
+        if (user.Identity?.IsAuthenticated == true)
+        {
+            userId = user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            
+            if (!string.IsNullOrEmpty(userId))
+            {
+                await LoadActiveTimeEntry();
+                await LoadRecentTimeEntries();
+                await LoadNotifications();
+
+                // 1分ごとにUIを更新するタイマーを設定
+                timer = new System.Threading.Timer(
+                    async _ => 
+                    {
+                        await InvokeAsync(StateHasChanged);
+                    }, 
+                    null, 
+                    TimeSpan.Zero, 
+                    TimeSpan.FromSeconds(30));
+            }
+        }
+    }
+
+    public void Dispose()
+    {
+        timer?.Dispose();
+    }
+
+    private async Task LoadActiveTimeEntry()
+    {
+        try
+        {
+            activeTimeEntry = await TimeEntryService.GetActiveTimeEntryAsync(userId!);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "アクティブなタイムエントリの読み込み中にエラーが発生しました");
+        }
+    }
+
+    private async Task LoadRecentTimeEntries()
+    {
+        try
+        {
+            var allEntries = await TimeEntryService.GetUserTimeEntriesAsync(
+                userId!, 
+                DateTime.Now.AddDays(-7), 
+                DateTime.Now);
+            
+            recentTimeEntries = allEntries
+                .Where(e => e.EndTime != null)
+                .Take(5)
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "最近のタイムエントリの読み込み中にエラーが発生しました");
+        }
+    }
+
+    private async Task LoadNotifications()
+    {
+        try
+        {
+            notifications = await NotificationService.GetUnreadNotificationsAsync(userId!);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "通知の読み込み中にエラーが発生しました");
+        }
+    }
+
+    private async Task PauseTimeEntry(int timeEntryId)
+    {
+        try
+        {
+            await TimeEntryService.PauseTimeTrackingAsync(timeEntryId);
+            await LoadActiveTimeEntry();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "タイムエントリの一時停止中にエラーが発生しました");
+        }
+    }
+
+    private async Task ResumeTimeEntry(int timeEntryId)
+    {
+        try
+        {
+            await TimeEntryService.ResumeTimeTrackingAsync(timeEntryId);
+            await LoadActiveTimeEntry();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "タイムエントリの再開中にエラーが発生しました");
+        }
+    }
+
+    private async Task EndTimeEntry(int timeEntryId)
+    {
+        try
+        {
+            await TimeEntryService.EndTimeTrackingAsync(timeEntryId);
+            await LoadActiveTimeEntry();
+            await LoadRecentTimeEntries();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "タイムエントリの終了中にエラーが発生しました");
+        }
+    }
+
+    private async Task MarkAsRead(int notificationId)
+    {
+        try
+        {
+            await NotificationService.MarkNotificationAsReadAsync(notificationId);
+            await LoadNotifications();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "通知の既読処理中にエラーが発生しました");
+        }
+    }
+
+    private void NavigateToTimerPage()
+    {
+        // タイマーページへナビゲーション
+    }
+
+    private string GetElapsedTime(TimeEntry entry)
+    {
+        if (entry.EndTime.HasValue)
+        {
+            // 終了している場合
+            return $"{entry.DurationMinutes} 分";
+        }
+        else
+        {
+            // 進行中の場合
+            var elapsed = DateTime.Now - entry.StartTime;
+            if (entry.IsPaused)
+            {
+                // 一時停止中の場合は、一時停止開始時点までの時間を計算
+                if (entry.PauseStartTime.HasValue)
+                {
+                    elapsed = entry.PauseStartTime.Value - entry.StartTime;
+                }
+            }
+
+            // 一時停止していた総時間を引く
+            elapsed = elapsed.Subtract(TimeSpan.FromMinutes(entry.PauseDurationMinutes));
+            
+            return elapsed.TotalHours >= 1 
+                ? $"{Math.Floor(elapsed.TotalHours):0}時間 {elapsed.Minutes:00}分"
+                : $"{elapsed.Minutes:0}分 {elapsed.Seconds:00}秒";
+        }
+    }
+}
